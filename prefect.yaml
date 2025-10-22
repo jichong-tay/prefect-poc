@@ -1,0 +1,17 @@
+# Prefect deployment configuration
+name: prefect-poc
+prefect-version: 2.13.7
+
+# Define deployments
+deployments:
+  - name: my-data-pipeline
+    entrypoint: deployed_flow.py:data_pipeline
+    work_pool:
+      name: my-local-pool
+    description: Demo data pipeline deployment
+    parameters:
+      source: "default-api"
+      destination: "default-db"
+    tags:
+      - demo
+      - tutorial
