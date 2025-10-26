@@ -8,56 +8,109 @@
 
 Scope
 
-- This repository is a small proof-of-concept connecting Streamlit UI with Prefect orchestration.
+- This repository is a proof-of-concept demonstrating Prefect orchestration with parallel task execution and server-side concurrency control.
 - Primary components:
-  - `streamlit/` — Streamlit app for authenticated Prefect flow inspection (`main.py`, `rest_api_app.py`).
-  - `prefect-main.py` — Example Prefect flow and tasks used for local runs/registration.
-  - `pyproject.toml` — Declares runtime Python >=3.13 and dependencies (prefect, streamlit, griffe).
+  - `streamlit/` — Streamlit app for authenticated Prefect flow inspection (`main.py`, `rest_api_app.py`, `playground.ipynb`).
+  - `flows/` — Prefect flow definitions with examples of parallel execution and concurrency control.
+  - `scripts/` — Utility scripts for setup and testing (concurrency limits, authentication).
+  - `docs/` — Documentation for authentication and concurrency patterns.
+  - `pyproject.toml` — Declares runtime Python >=3.10 and dependencies (prefect==2.13.7, streamlit, griffe).
 
 Big picture and why
 
-- The Streamlit app queries a Prefect Orchestration API that is usually behind an auth workbench.
-  Instead of relying on env-only auth, the app demonstrates session-based cookie auth with a login form
-  and then constructs a `PrefectClient` with custom http headers (Cookie) to read flows and flow runs.
-- The repo favors runtime instantiation over environment-only configuration: see `streamlit/main.py` where
-  `PrefectClient(api=...)` is created directly instead of only reading `PREFECT_API_URL`.
+- Demonstrates production-ready patterns for private/self-hosted Prefect workflows including:
+  - Server-side concurrency control using task tags (no manual batching in code)
+  - Authentication support for both dev (local, no auth) and prod (private server with API keys)
+  - Proper future handling for parallel task execution
+  - Task sequencing and dependency management
+- The repo shows how to run multiple tasks in parallel while limiting concurrent execution (e.g., 3 SQL queries at a time).
+- All patterns target self-hosted Prefect servers, not Prefect Cloud.
 
 Key files to read first (in-order)
 
-1. `streamlit/main.py` — shows authentication flow (requests.Session -> cookie header), uses
-   `prefect.client.orchestration.PrefectClient` and `prefect.client.schemas.filters.FlowFilter` to query flows.
-2. `prefect-main.py` — minimal sample Prefect flow/tasks used for local experimentation.
-3. `pyproject.toml` — dependency and Python version pinning to match runtime expectations.
+1. `flows/prefect_flow.py` — production ETL flow showing parallel task execution with server-side concurrency control via tags.
+2. `streamlit/main.py` — Streamlit UI with authentication flow (cookie-based auth with PrefectClient).
+3. `scripts/setup_concurrency_limit.py` — sets up server-side concurrency limits using Prefect API.
+4. `docs/concurrency_guide.md` — explains server-side concurrency control patterns.
+5. `docs/authentication_guide.md` — complete guide to dev/prod authentication.
 
 Developer workflows and commands
 
-- Start Prefect server (2.13.7) with Docker:
+- Use Makefile for common operations:
+  
+  ```bash
+  make help                 # Show all available commands
+  make setup                # Install dependencies
+  make prefect-server       # Start Prefect server (first time)
+  make prefect-start        # Start existing server
+  make prefect-stop         # Stop server
+  make prefect-logs         # View logs
+  make setup-concurrency    # Configure concurrency limits
+  make test-auth           # Test authentication
+  make run-flow            # Run production flow
+  make run-ui              # Start Streamlit UI
+  ```
+
+- Or use Docker commands directly:
+
   ```bash
   docker run -d -p 4200:4200 --name prefect-server prefecthq/prefect:2.13.7-python3.10 prefect server start --host 0.0.0.0
   ```
+
   - Access UI: http://localhost:4200
   - API endpoint: http://localhost:4200/api
   - Stop server: `docker stop prefect-server`
   - View logs: `docker logs prefect-server`
   - Restart: `docker start prefect-server`
   - Remove container: `docker rm -f prefect-server`
-- Run Streamlit app locally from repo root:
-  - Ensure Python >=3.13 and dependencies installed (see `pyproject.toml`).
-  - Start: `streamlit run streamlit/main.py`
-- Run the example Prefect flow locally (no server required for local execution):
-  - `python prefect-main.py`
-  - To run against the Docker server, ensure PREFECT_API_URL is set or use `PrefectClient(api="http://localhost:4200/api")` in code.
+
+- Setup server-side concurrency limits:
+
+  ```bash
+  make setup-concurrency
+  # Or manually:
+  export PREFECT_API_URL=http://localhost:4200/api
+  python scripts/setup_concurrency_limit.py
+  ```
+
+- Run flows:
+
+  ```bash
+  make run-flow
+  # Or manually:
+  python flows/prefect_flow.py
+  ```
+
+- Test authentication (for production with private server):
+
+  ```bash
+  make test-auth
+  # Or manually:
+  export PREFECT_API_URL=https://your-private-server.com/api
+  export PREFECT_API_KEY=pnu_your_key
+  python scripts/test_prefect_auth.py
+  ```
+
+- Run Streamlit app:
+  ```bash
+  make run-ui
+  # Or manually:
+  streamlit run streamlit/main.py
+  ```
 
 Project-specific conventions and patterns
 
+- Environment: This project targets **self-hosted/private Prefect servers only**, not Prefect Cloud.
 - Auth: The Streamlit UI uses session-based login to produce a Cookie header string, then passes it into `PrefectClient(..., httpx_settings={"headers": {"Cookie": cookie}})`.
   - When editing or adding new Prefect calls, preserve this cookie->httpx header pattern when authentication is required.
+  - In production, the private Prefect server requires API key authentication via `PREFECT_API_KEY` environment variable.
 - Prefect usage: The code uses `await client.read_flows()` and `await client.read_flow_runs(...)` inside asyncio contexts. Maintain async usage and wrap with `asyncio.run(...)` where needed in sync code (as shown in `streamlit/main.py`).
 - Data frames: Flow/run query results are converted to a pandas DataFrame for Streamlit display. Keep returned data shapes tabular-friendly.
 
 Integration points & external dependencies
 
-- Prefect Orchestration API (default `http://localhost:4200/api` in code examples) — calls require authentication via the workbench. The app assumes a login endpoint that returns auth cookies.
+- Private Prefect Server API (dev: `http://localhost:4200/api`, prod: private server URL) — calls require authentication via workbench session cookies or API keys.
+- The Streamlit app assumes a login endpoint that returns auth cookies for the private Prefect server.
 - External services to mock or stub in tests: the login endpoint (POST form username/password -> cookies) and Prefect API endpoints (`/api/flows`, `/api/flow_runs`).
 
 Examples of useful edits an AI agent can make
@@ -68,8 +121,9 @@ Examples of useful edits an AI agent can make
 
 What not to change without approval
 
-- Don’t swap synchronous Prefect client patterns for entirely different orchestration client libraries.
-- Don’t remove the cookie-in-header pattern — it reflects a real integration constraint: the Prefect server sits behind a workbench requiring session cookies.
+- Don't swap synchronous Prefect client patterns for entirely different orchestration client libraries.
+- Don't remove the cookie-in-header pattern — it reflects a real integration constraint: the private Prefect server sits behind a workbench requiring session cookies.
+- Don't add Prefect Cloud specific features or dependencies — this project targets self-hosted servers only.
 
 Where to look for more context
 
