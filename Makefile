@@ -1,4 +1,4 @@
-.PHONY: help setup prefect-setup prefect-server prefect-start prefect-stop prefect-restart prefect-logs prefect-clean setup-concurrency test-auth run-flow run-ui clean
+.PHONY: help setup prefect-setup prefect-server prefect-start prefect-stop prefect-restart prefect-logs prefect-clean setup-concurrency test-auth run-flow run-ui deploy-flows start-workers run-distributed clean
 
 help:
 	@echo "Prefect POC - Available Commands:"
@@ -16,9 +16,15 @@ help:
 	@echo "  make prefect-logs       - View Prefect server logs"
 	@echo "  make prefect-clean      - Stop and remove Prefect server container"
 	@echo ""
+	@echo "Distributed Workflow Commands:"
+	@echo "  make deploy-flows       - Deploy flows to work pool"
+	@echo "  make start-workers      - Start 3 workers (default)"
+	@echo "  make start-workers N=5  - Start N workers"
+	@echo "  make run-distributed    - Run distributed ETL flow"
+	@echo ""
 	@echo "Development Commands:"
 	@echo "  make test-auth          - Test Prefect authentication"
-	@echo "  make run-flow           - Run production ETL flow"
+	@echo "  make run-flow           - Run production ETL flow (single flow)"
 	@echo "  make run-ui             - Start Streamlit UI"
 	@echo ""
 	@echo "Cleanup Commands:"
@@ -68,6 +74,18 @@ test-auth:
 run-flow:
 	@export PREFECT_API_URL=http://localhost:4200/api && \
 	python flows/prefect_flow.py
+
+deploy-flows:
+	@export PREFECT_API_URL=http://localhost:4200/api && \
+	python flows/prefect_flow-worker-flow.py deploy
+
+start-workers:
+	@export PREFECT_API_URL=http://localhost:4200/api && \
+	python scripts/start_workers.py --workers $(or $(N),3)
+
+run-distributed:
+	@export PREFECT_API_URL=http://localhost:4200/api && \
+	python flows/prefect_flow-worker-flow.py run
 
 run-ui:
 	streamlit run streamlit/main.py
